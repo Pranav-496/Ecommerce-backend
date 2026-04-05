@@ -117,6 +117,10 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # CORS (FIXED)
 # =========================
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://ecommerce-frontend-3u6s.onrender.com",
+    "http://localhost:5174",
+]
 
 # =========================
 # DRF
