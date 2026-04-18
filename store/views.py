@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from .serializers import RegisterSerializer, UserSerializer
 from rest_framework import status
 from .models import Product, Category, Cart, CartItem, Order, OrderItem
-from .serializers import ProductSerializer, CategorySerializer, CartSerializer, CartItemSerializer
+from .serializers import ProductSerializer, CategorySerializer, CartSerializer, CartItemSerializer, OrderSerializer
 
 @api_view(['GET'])
 def get_products(request):
@@ -76,28 +76,47 @@ def remove_from_cart(request):
     CartItem.objects.filter(id=item_id).delete()
     return Response({'message': 'Item removed from cart'})
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_orders(request):
+    orders = Order.objects.filter(user=request.user).order_by('-created_at')
+    serializer = OrderSerializer(orders, many=True)
+    return Response(serializer.data)
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_order(request):
     try:
         data = request.data
-        name = data.get('name')
-        address = data.get('address')
-        phone = data.get('phone')
+        name = data.get('name', '')
+        address = data.get('address', '')
+        phone = data.get('phone', '')
         payment_method = data.get('payment_method','COD')
 
         #validate Phone Number
-        if not phone.isdigit() or len(phone) < 10:
+        if not phone or not phone.isdigit() or len(phone) < 10:
             return Response({'error': 'Invalid phone number'}, status=400)
         
         # Get user's cart
         cart , created = Cart.objects.get_or_create(user=request.user)
         if not cart.items.exists():
             return Response({'error': 'Cart is empty'}, status=400)
+            
+        # Check stock before creating order
+        for item in cart.items.all():
+            if item.product.stock < item.quantity:
+                return Response({'error': f'Not enough stock for {item.product.name}'}, status=400)
         
         total = sum([item.product.price * item.quantity for item in cart.items.all()])
 
-        order = Order.objects.create(user = request.user, total_amount=total)
+        order = Order.objects.create(
+            user=request.user, 
+            total_amount=total,
+            name=name,
+            address=address,
+            phone=phone,
+            payment_method=payment_method
+        )
 
         for item in cart.items.all():
             OrderItem.objects.create(
@@ -106,6 +125,10 @@ def create_order(request):
                 quantity=item.quantity,
                 price=item.product.price
             )
+            # Deduct stock
+            item.product.stock -= item.quantity
+            item.product.save()
+            
         # Clear the cart
         cart.items.all().delete()
         return Response({'message': 'Order created successfully', 'order_id': order.id})
